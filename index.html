@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PubMedQA Hybrid RAG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f7f8f4;
+      --bg-accent: #eef3ea;
+      --surface: #ffffff;
+      --ink: #1c2420;
+      --muted: #5d6b63;
+      --line: #d7e0d8;
+      --brand: #0f6b4c;
+      --brand-soft: #d9f0e5;
+      --yes: #0f6b4c;
+      --no: #a33b2d;
+      --maybe: #8a6a12;
+      --shadow: 0 10px 30px rgba(28, 36, 32, 0.06);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Figtree", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #e4f2ea 0%, transparent 55%),
+        radial-gradient(900px 400px at 100% 0%, #e8eee4 0%, transparent 50%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .wrap { width: min(920px, calc(100% - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
+    .eyebrow { color: var(--brand); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.78rem; }
+    h1 { font-family: "Source Serif 4", Georgia, serif; font-size: clamp(1.9rem, 3vw, 2.6rem); margin: 0.4rem 0 0.6rem; line-height: 1.15; }
+    .lede { color: var(--muted); max-width: 55ch; line-height: 1.55; margin: 0 0 1.4rem; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 1.1rem;
+    }
+    label { display: block; font-weight: 600; margin: 0.2rem 0 0.45rem; font-size: 0.92rem; }
+    textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.8rem 0.9rem;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+    textarea { min-height: 110px; resize: vertical; }
+    textarea:focus, select:focus { outline: 2px solid #b7dfcb; border-color: var(--brand); }
+    .row { display: grid; grid-template-columns: 1fr 180px; gap: 0.8rem; margin-top: 0.8rem; }
+    button {
+      margin-top: 0.95rem;
+      border: 0;
+      border-radius: 999px;
+      background: var(--brand);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      padding: 0.8rem 1.2rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .status { margin-top: 0.8rem; color: var(--muted); font-size: 0.9rem; min-height: 1.2em; }
+    .out { margin-top: 1rem; display: grid; gap: 0.8rem; }
+    .box {
+      background: var(--bg-accent);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.95rem 1rem;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+    .badge {
+      display: inline-flex;
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      background: #eef2ef;
+      color: var(--muted);
+    }
+    .badge.yes { background: #dff3ea; color: var(--yes); }
+    .badge.no { background: #f8e4e1; color: var(--no); }
+    .badge.maybe { background: #f7efd4; color: var(--maybe); }
+    .evidence details { border-top: 1px solid var(--line); padding-top: 0.7rem; }
+    .evidence summary { cursor: pointer; font-weight: 600; }
+    .hit { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px dashed var(--line); color: var(--muted); font-size: 0.92rem; }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="eyebrow">PubMedQA · Hybrid RAG</div>
+    <h1>Ask a biomedical question</h1>
+    <p class="lede">
+      Live retrieval over PubMedQA passages (BM25 + dense + RRF). Prefer Yes/No research-style questions for best verdicts.
+    </p>
+
+    <div class="card">
+      <label for="q">Question</label>
+      <textarea id="q" placeholder="Example: Does preoperative anemia adversely affect colon and rectal surgery outcomes?"></textarea>
+      <div class="row">
+        <div>
+          <label for="mode">Retrieval mode</label>
+          <select id="mode">
+            <option value="hybrid" selected>hybrid</option>
+            <option value="bm25">bm25</option>
+            <option value="dense">dense</option>
+          </select>
+        </div>
+      </div>
+      <button id="askBtn" type="button">Get answer</button>
+      <div class="status" id="status">Checking API…</div>
+    </div>
+
+    <div class="out" id="out" hidden>
+      <div>
+        <span class="badge" id="verdictBadge">verdict</span>
+      </div>
+      <div class="box" id="answerBox"></div>
+      <div class="card evidence">
+        <details open>
+          <summary>Evidence passages</summary>
+          <div id="hits"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const q = document.getElementById("q");
+    const mode = document.getElementById("mode");
+    const askBtn = document.getElementById("askBtn");
+    const status = document.getElementById("status");
+    const out = document.getElementById("out");
+    const answerBox = document.getElementById("answerBox");
+    const hits = document.getElementById("hits");
+    const verdictBadge = document.getElementById("verdictBadge");
+
+    async function checkHealth() {
+      try {
+        const r = await fetch("/api/health");
+        const data = await r.json();
+        status.textContent = `Ready · ${data.docs} passages · ${data.provider}`;
+      } catch {
+        status.textContent = "API not reachable. Start the FastAPI server first.";
+      }
+    }
+
+    function badgeClass(v) {
+      v = (v || "").toLowerCase();
+      if (v === "yes" || v === "no" || v === "maybe") return v;
+      return "";
+    }
+
+    askBtn.addEventListener("click", async () => {
+      const question = q.value.trim();
+      if (!question) {
+        status.textContent = "Please type a question.";
+        return;
+      }
+      askBtn.disabled = true;
+      status.textContent = "Retrieving + generating…";
+      try {
+        const r = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, mode: mode.value, top_k: 5 }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || ("HTTP " + r.status));
+        }
+        const data = await r.json();
+        out.hidden = false;
+        answerBox.textContent = data.answer || "";
+        verdictBadge.textContent = "Verdict: " + (data.verdict || "n/a");
+        verdictBadge.className = "badge " + badgeClass(data.verdict);
+        hits.innerHTML = (data.hits || []).map((h, i) =>
+          `<div class="hit"><strong>[${i + 1}]</strong> (score ${Number(h.score).toFixed(4)})<br>${escapeHtml(h.text)}</div>`
+        ).join("");
+        status.textContent = "Done.";
+      } catch (e) {
+        status.textContent = "Error: " + e.message;
+      } finally {
+        askBtn.disabled = false;
+      }
+    });
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    checkHealth();
+  </script>
+</body>
+</html>
